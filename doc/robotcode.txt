@@ -26,6 +26,11 @@ COMMANDS                                                  *robotcode-commands*
     Refresh optional signs and virtual text alongside test titles. These are
     visual indicators; use commands or mappings to run/debug a test.
 
+:RobotCodeResult                                           *:RobotCodeResult*
+    Reopen the last result popup. Results automatically appear when a test
+    finishes running or debugging. Shows status, duration and failure reason.
+    Scroll long messages normally; q, <Esc> and <Enter> close the popup.
+
 CONFIGURATION                                             *robotcode-config*
 >
     require('robotcode').setup({
@@ -34,6 +39,7 @@ CONFIGURATION                                             *robotcode-config*
       args = { '--variable', 'BROWSER:chromium' },
       keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
       markers = true,
+      result_popup = { focus = true, max_width = 90, max_height = 20 },
       dap = { console = 'internalConsole' },
     })
 <
@@ -51,11 +57,16 @@ save_before_run   Save the current buffer before execution, default true.
 discovery_timeout Timeout for CLI discovery in milliseconds, default 30000.
 markers           Enable test-title indicators, default true.
 marker_text       Default '▶ Run / Debug'.
+result_popup      Default { enabled = true, focus = true, max_width = 90,
+                  max_height = 20, border = 'rounded' }. Set focus = false to
+                  keep typing, or result_popup = false to use notifications.
 keys              Table with run/debug/test mappings. false disables mappings.
 dap               Additional DAP launch settings, e.g. stopOnEntry = true.
 
 Use your usual nvim-dap mappings for stepping, continuing and terminating.
 Debug output is available in require('dap').repl.open().
+The popup includes full multiline failure messages and final suite teardown
+failures. Runner errors and interrupted debug sessions use ERROR / STOPPED.
 
 BEHAVIOR                                                  *robotcode-behavior*
 

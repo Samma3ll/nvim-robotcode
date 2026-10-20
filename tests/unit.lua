@@ -39,5 +39,25 @@ assert(project.contains(root, file))
 assert(not project.contains(root, root .. '-other/file.robot'))
 local args = project.run(ctx, selected, config)
 equal({ 'python path', '-m', 'robotcode.cli', '-dp', '.', '--profile', 'dev', 'robot', '--by-longname', selected.longname, '--variable', 'X:value with spaces' }, args)
-print('Unit checks passed: symbol boundaries, keyword rejection, duplicate refusal and literal argv.')
+local results = require('robotcode.results')
+local run = { file = vim.fn.tempname() .. '.json', test = selected, mode = 'run', options = false }
+equal('UNKNOWN', results.read(run, 0).status)
+local crashed = results.read(run, 252, 'Invalid option: --bad')
+equal('ERROR', crashed.status)
+assert(crashed.message:find('Invalid option: --bad', 1, true))
+vim.fn.writefile({ vim.json.encode({ tests = { {
+  longname = selected.longname, status = 'FAIL', message = 'Expected 42\nActually 7', elapsed_ms = 12,
+} } }) }, run.file)
+equal('Expected 42\nActually 7', results.read(run, 1).message)
+equal('FAIL', results.read(run, 0).status) -- --nostatusrc must not hide a failure.
+equal('STOPPED', results.read(run, nil, nil, true).status)
+local windows = #vim.api.nvim_list_wins()
+results.finish(run, 1)
+equal(windows, #vim.api.nvim_list_wins()) -- Disabling popups preserves notifications.
+equal(0, vim.fn.filereadable(run.file))
+local popup, win = results.show_last()
+assert(vim.api.nvim_win_is_valid(win) and vim.bo[popup].filetype == 'robotcode_result')
+results.close()
+assert(not vim.api.nvim_buf_is_valid(popup))
+print('Unit checks passed: selection, literal argv, result status/error handling, popup settings and cleanup.')
 vim.cmd('qa!')

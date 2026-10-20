@@ -111,9 +111,21 @@ Place the cursor on a test title or inside its body:
 | `<leader>rd` | `:RobotCodeDebugTest` | Debug this test with `nvim-dap` |
 | `<leader>rt` | `:RobotCodeTest` | Choose Run or Debug |
 | — | `:RobotCodeRefresh` | Refresh title markers |
+| — | `:RobotCodeResult` | Reopen the last test result popup |
 
 Mappings are buffer-local. Keywords and settings sections do not select a test.
 Tasks use the same actions.
+
+When a run or debug session finishes, a centered popup shows **PASS**, **FAIL**
+or **SKIP**, the test name and duration. Failed tests show Robot Framework's full
+failure message, including multiple lines and setup/teardown failures. Scroll
+the popup normally for longer messages. Close it with `q`, `<Esc>` or `<Enter>`;
+`:RobotCodeResult` reopens the most recent result.
+
+The popup takes focus by default. Set `result_popup = { focus = false }` to keep
+typing in your current window, or `result_popup = false` to use notifications
+instead. Runner/launch errors and interrupted debug sessions are reported as
+**ERROR** or **STOPPED**, rather than a passing test.
 
 For debugging, set a breakpoint before `:RobotCodeDebugTest`:
 
@@ -151,6 +163,13 @@ require('robotcode').setup({
   discovery_timeout = 30000,          -- milliseconds
   markers = true,
   marker_text = '▶ Run / Debug',
+  result_popup = {
+    enabled = true,
+    focus = true,
+    max_width = 90,
+    max_height = 20,
+    border = 'rounded',
+  },
   keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
   -- keys = false,                   -- use only commands / your own mappings
   dap = { console = 'internalConsole' }, -- e.g. also stopOnEntry = true
@@ -180,6 +199,12 @@ Output/log/report paths follow your RobotCode configuration. Use `args` or
 suite/test arguments to your existing LSP and registers its own DAP adapter as
 `nvim_robotcode`.
 
+A bundled Robot Framework listener captures the final result in a temporary
+file for the popup. The temporary file is removed after completion; configured
+output, log and report paths are preserved. `RobotCodeTestFinished` user events
+include `data.result` (status, message, name and duration in `elapsed_ms`) and
+`data.mode` (`run` or `debug`) for integrations.
+
 ## Verification
 
 Tested on Windows with Neovim 0.10.1, RobotCode 2.7.0, Robot Framework 7.5 and
@@ -187,7 +212,9 @@ Tested on Windows with Neovim 0.10.1, RobotCode 2.7.0, Robot Framework 7.5 and
 selected test in a Neovim terminal, stop at a breakpoint, step to the next keyword, and continue to a
 passing DAP test result. They verify title/body boundaries, keyword rejection,
 test markers, exact selection, a same-named test in another file, parent suite
-setup, profiles and environment variables. Older `nvim-dap` on Windows may print
+setup, profiles and environment variables. Popup checks cover passing, failing,
+skipped and suite-teardown results, multiline Unicode failure messages, popup
+closing/reopening and both run/debug completion. Older `nvim-dap` on Windows may print
 an adapter exit-code warning after a successful session when it stops the
 launcher; the test's DAP exit status and Robot output still report the result.
 

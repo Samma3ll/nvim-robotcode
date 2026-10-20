@@ -11,7 +11,7 @@ First test
 
 Literal [x] * ? test
     Should Be Equal    ${PARENT_SETUP}    inherited
-    Log Many    ${MESSAGE}    %{ROBOTCODE_NVIM_CHECK=missing}
+    Log Many    ${MESSAGE}    %{ROBOTCODE_NVIM_CHECK=missing}    %{ROBOTCODE_DAP_ONLY=run}
 
 Last test
     Fail    This test must never run when selecting the second test.

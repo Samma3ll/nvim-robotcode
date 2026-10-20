@@ -6,6 +6,7 @@ for command, action in pairs({
   RobotCodeDebugTest = 'debug_test',
   RobotCodeTest = 'test',
   RobotCodeRefresh = 'refresh',
+  RobotCodeResult = 'show_result',
 }) do
   vim.api.nvim_create_user_command(command, function() require('robotcode')[action]() end, {})
 end

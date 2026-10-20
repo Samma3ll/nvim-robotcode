@@ -1,10 +1,12 @@
 local M = {}
 local symbols = require('robotcode.symbols')
 local project = require('robotcode.project')
+local results = require('robotcode.results')
 local ns = vim.api.nvim_create_namespace('robotcode.tests')
 local config
 local pending = {}
 local generations = {}
+local debug_runs = {}
 local defaults = {
   cmd = nil, -- argv list or function(ctx); auto-detect a project venv, then PATH
   root_dir = nil, -- string or function(bufnr, client)
@@ -18,6 +20,7 @@ local defaults = {
   discovery_timeout = 30000,
   markers = true,
   marker_text = '▶ Run / Debug',
+  result_popup = { enabled = true, focus = true, max_width = 90, max_height = 20, border = 'rounded' },
   dap = { console = 'internalConsole' },
   keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
 }
@@ -97,6 +100,7 @@ local function debug_test(ctx, test)
     notify('A debug session is already active. Stop it before debugging another test.')
     return
   end
+  local run, run_config = results.prepare(test, config, 'debug')
   local cmd = project.command(ctx, config.cmd)
   local adapter_args = vim.list_slice(cmd, 2)
   vim.list_extend(adapter_args, { 'debug-launch', '--stdio' })
@@ -123,35 +127,66 @@ local function debug_test(ctx, test)
           if err then notify('Could not acknowledge debug event: ' .. tostring(err.message)) end
         end)
       end
+      if event == 'robotExited' then
+        local completed = debug_runs[session.config.__robotcode_result]
+        if completed then
+          results.finish(completed, body and body.exitCode)
+          debug_runs[session.config.__robotcode_result] = nil
+        end
+      end
+    end
+  end
+  dap.listeners.after.event_terminated.nvim_robotcode = function(session)
+    local interrupted = debug_runs[session.config.__robotcode_result]
+    if interrupted then
+      results.finish(interrupted, nil, nil, true)
+      debug_runs[session.config.__robotcode_result] = nil
+    end
+  end
+  dap.listeners.after.launch.nvim_robotcode = function(session, err)
+    local failed = debug_runs[session.config.__robotcode_result]
+    if failed and err then
+      results.finish(failed, -1, err.message)
+      debug_runs[session.config.__robotcode_result] = nil
     end
   end
   local launch = vim.tbl_deep_extend('force', {}, config.dap, {
     type = 'nvim_robotcode', request = 'launch', name = 'RobotCode: ' .. test.name,
-    cwd = ctx.root, args = project.test_args(test, config),
-    robotCodeArgs = project.global_args(config), env = config.env,
+    cwd = ctx.root, args = project.test_args(test, run_config),
+    robotCodeArgs = project.global_args(config), env = run_config.env,
+    __robotcode_result = run.file,
   })
-  dap.run(launch)
+  debug_runs[run.file] = run
+  local started, err = pcall(dap.run, launch)
+  if not started then
+    debug_runs[run.file] = nil
+    results.finish(run, -1, tostring(err))
+  end
 end
 
 local function run_test(ctx, test)
-  local cmd = project.run(ctx, test, config)
+  local run, run_config = results.prepare(test, config, 'run')
+  local cmd = project.run(ctx, test, run_config)
   vim.cmd('botright 12new')
   local terminal_buf = vim.api.nvim_get_current_buf()
+  run.terminal_buf = terminal_buf
   vim.bo[terminal_buf].bufhidden = 'hide'
-  local job = vim.fn.termopen(cmd, {
-    cwd = ctx.root, env = config.env,
+  local started, job = pcall(vim.fn.termopen, cmd, {
+    cwd = ctx.root, env = run_config.env,
     on_exit = function(_, code)
       vim.schedule(function()
-        notify(test.name .. (code == 0 and ' passed.' or ' exited with code ' .. code .. '.'),
-          code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
-        vim.api.nvim_exec_autocmds('User', {
-          pattern = 'RobotCodeTestFinished', modeline = false,
-          data = { test = test, code = code, bufnr = terminal_buf },
-        })
+        local output = ''
+        if vim.api.nvim_buf_is_valid(terminal_buf) then
+          local count = vim.api.nvim_buf_line_count(terminal_buf)
+          output = table.concat(vim.api.nvim_buf_get_lines(terminal_buf, math.max(0, count - 60), -1, false), '\n')
+        end
+        results.finish(run, code, output)
       end)
     end,
   })
-  if job <= 0 then notify('Could not start RobotCode. Check cmd and the Python environment.') end
+  if not started or job <= 0 then
+    results.finish(run, -1, 'Could not start RobotCode. Check cmd and the Python environment.\n' .. tostring(job))
+  end
 end
 
 local function execute(mode)
@@ -210,6 +245,7 @@ end
 
 function M.run_test() execute('run') end
 function M.debug_test() execute('debug') end
+function M.show_result() return results.show_last() end
 
 function M.test()
   local bufnr, win, cursor = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), vim.api.nvim_win_get_cursor(0)

@@ -28,6 +28,7 @@ local function main()
     cmd = { python, '-m', 'robotcode.cli' }, profiles = { 'example' },
     args = { '--outputdir', output },
     env = { ROBOTCODE_NVIM_CHECK = 'through env' },
+    dap = { env = { ROBOTCODE_DAP_ONLY = 'dap-only env' } },
   })
   vim.cmd.edit(vim.fn.fnameescape(file))
   vim.bo.filetype = 'robot'
@@ -68,6 +69,20 @@ local function main()
   vim.cmd('RobotCodeRunTest')
   wait_for('real terminal run', function() return finished ~= nil end)
   assert(finished.code == 0, vim.inspect(finished))
+  assert(finished.result.status == 'PASS', vim.inspect(finished))
+  local function check_popup(status, message)
+    local popup = vim.api.nvim_get_current_buf()
+    assert(vim.bo[popup].filetype == 'robotcode_result', 'Result popup did not take focus')
+    assert(vim.api.nvim_win_get_config(0).relative == 'editor', 'Result is not a floating popup')
+    local text = table.concat(vim.api.nvim_buf_get_lines(popup, 0, -1, false), '\n')
+    assert(text:find(status .. ':', 1, true), text)
+    if message then assert(text:find(message, 1, true), text) end
+    local mapping = vim.fn.maparg('q', 'n', false, true)
+    assert(type(mapping.callback) == 'function', 'Popup has no close mapping')
+    mapping.callback()
+    assert(not vim.api.nvim_buf_is_valid(popup), 'Popup buffer was not cleaned up')
+  end
+  check_popup('PASS', 'Test passed.')
   local xml = table.concat(vim.fn.readfile(vim.fs.joinpath(output, 'output.xml')), '\n')
   assert(xml:find('name="Literal %[x%] %* %? test"'))
   assert(not xml:find('name="First test"') and not xml:find('name="Last test"') and not xml:find('name="Other"'))
@@ -110,7 +125,42 @@ local function main()
     xml = table.concat(vim.fn.readfile(vim.fs.joinpath(output, 'output.xml')), '\n')
     assert(xml:find('name="Literal %[x%] %* %? test"') and not xml:find('name="First test"') and not xml:find('name="Last test"'))
     assert(xml:find('from profile') and xml:find('inherited') and xml:find('through env'))
+    assert(xml:find('dap%-only env'), 'Existing DAP environment overrides were not preserved')
+    assert(finished.mode == 'debug' and finished.result.status == 'PASS', vim.inspect(finished))
+    check_popup('PASS', 'Test passed.')
     print('PASS: real nvim-dap session completed exactly the selected test.')
+  end
+
+  local function run_case(name, line, mode, status, message)
+    require('robotcode.results').close()
+    vim.cmd.edit(vim.fn.fnameescape(vim.fs.joinpath(fixture, 'suites', name .. '.robot')))
+    vim.bo.filetype = 'robot'
+    vim.lsp.buf_attach_client(vim.api.nvim_get_current_buf(), client_id)
+    vim.api.nvim_win_set_cursor(0, { line, 0 })
+    finished = nil
+    vim.cmd(mode == 'debug' and 'RobotCodeDebugTest' or 'RobotCodeRunTest')
+    wait_for(mode .. ' result for ' .. name, function() return finished ~= nil end, 45000)
+    assert(finished.result.status == status, vim.inspect(finished))
+    assert(finished.result.message:find(message, 1, true), vim.inspect(finished))
+    check_popup(status, message)
+    print('PASS: ' .. mode .. ' popup shows ' .. status .. ' and full reason for ' .. name .. '.')
+    return finished
+  end
+  local failure_message = 'Expected 42 but got 7.\nSecond line: détail & <value>'
+  local failure = run_case('results', 3, 'run', 'FAIL', failure_message)
+  assert(failure.code == 1)
+  run_case('results', 6, 'run', 'SKIP', 'This environment is unavailable.')
+  run_case('teardown', 6, 'run', 'FAIL', 'Cleanup failed after the test body passed.')
+  vim.cmd('RobotCodeResult')
+  check_popup('FAIL', 'Cleanup failed after the test body passed.')
+  if vim.env.ROBOTCODE_TEST_DAP == '1' then
+    local dap = require('dap')
+    wait_for('prior debug session to close', function() return dap.session() == nil end)
+    dap.clear_breakpoints()
+    dap.defaults.nvim_robotcode.exception_breakpoints = {}
+    run_case('results', 3, 'debug', 'FAIL', failure_message)
+    wait_for('failed debug session to close', function() return dap.session() == nil end)
+    run_case('teardown', 6, 'debug', 'FAIL', 'Cleanup failed after the test body passed.')
   end
   vim.lsp.stop_client(client_id, true)
 end

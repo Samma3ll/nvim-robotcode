@@ -1,4 +1,5 @@
 local M = {}
+local state = require('robotcode.state')
 local last_result, last_options, window
 local plugin_root = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(debug.getinfo(1, 'S').source:sub(2))))
 
@@ -7,7 +8,7 @@ local function clean(value)
     :gsub('\r\n', '\n'):gsub('\r', '\n'):gsub('[%z\1-\8\11\12\14-\31\127]', '')
 end
 
-function M.prepare(test, config, mode)
+function M.prepare(test, config, mode, ctx)
   local run = {
     file = vim.fn.tempname() .. '.json', test = vim.deepcopy(test), mode = mode,
     options = vim.deepcopy(config.result_popup),
@@ -16,27 +17,25 @@ function M.prepare(test, config, mode)
   local debug_env = mode == 'debug' and config.dap and config.dap.env or {}
   run_config.env = vim.tbl_extend('force', {}, debug_env or {}, config.env or {}, { NVIM_ROBOTCODE_RESULT_FILE = run.file })
   vim.list_extend(run_config.args, { '--listener', vim.fs.joinpath(plugin_root, 'python', 'robotcode_nvim_listener.py') })
+  if ctx then state.begin(run, ctx.root) end
   return run, run_config
 end
 
-function M.read(run, code, fallback, cancelled)
-  local result = { name = run.test.name, longname = run.test.longname, mode = run.mode, code = code }
+local function read_test(run, test, data, code, fallback, cancelled, multiple)
+  local result = { name = test.name, longname = test.longname, source = test.source, mode = run.mode, code = code }
   if cancelled then
     result.status, result.message = 'STOPPED', fallback or 'Debug session ended before a final test result was reported.'
     return result
   end
-  local ok, lines = pcall(vim.fn.readfile, run.file)
-  local decoded, data = false, nil
-  if ok then decoded, data = pcall(vim.json.decode, table.concat(lines, '\n')) end
-  if decoded and type(data) == 'table' and type(data.tests) == 'table' then
-    for _, test in ipairs(data.tests) do
-      if test.longname == run.test.longname then
-        result.status, result.message, result.elapsed_ms = test.status, clean(test.message), test.elapsed_ms
+  if type(data) == 'table' and type(data.tests) == 'table' then
+    for _, captured in ipairs(data.tests) do
+      if captured.longname == test.longname then
+        result.status, result.message, result.elapsed_ms = captured.status, clean(captured.message), captured.elapsed_ms
         break
       end
     end
   end
-  if not result.status or (code ~= 0 and result.status == 'PASS') then
+  if not result.status or (code ~= 0 and result.status == 'PASS' and not multiple) then
     result.status = code == 0 and 'UNKNOWN' or 'ERROR'
     result.message = 'RobotCode exited with code ' .. tostring(code) .. '.'
     if code == 0 then result.message = result.message .. '\nNo structured test result was captured.' end
@@ -44,6 +43,35 @@ function M.read(run, code, fallback, cancelled)
   elseif result.status == 'FAIL' and result.message == '' then
     result.message = 'The test failed without a failure message.'
   end
+  return result
+end
+
+function M.read(run, code, fallback, cancelled)
+  local ok, lines = pcall(vim.fn.readfile, run.file)
+  local decoded, data = false, nil
+  if ok then decoded, data = pcall(vim.json.decode, table.concat(lines, '\n')) end
+  if not decoded then data = nil end
+  if run.test.type ~= 'suite' and run.test.type ~= 'workspace' then
+    return read_test(run, run.test, data, code, fallback, cancelled)
+  end
+  local result = { name = run.test.name, longname = run.test.longname, mode = run.mode, code = code, tests = {}, elapsed_ms = 0 }
+  local counts = { PASS = 0, FAIL = 0, SKIP = 0 }
+  for _, test in ipairs(state.tests(run.test)) do
+    local captured = read_test(run, test, data, code, fallback, cancelled, code and code >= 0 and code < 251)
+    result.tests[#result.tests + 1] = captured
+    counts[captured.status] = (counts[captured.status] or 0) + 1
+    result.elapsed_ms = result.elapsed_ms + (captured.elapsed_ms or 0)
+  end
+  result.status = counts.STOPPED and 'STOPPED' or counts.ERROR and 'ERROR' or counts.UNKNOWN and 'UNKNOWN'
+    or counts.FAIL > 0 and 'FAIL' or counts.PASS > 0 and 'PASS' or 'SKIP'
+  if code ~= 0 and result.status == 'PASS' then result.status = 'ERROR' end
+  result.message = string.format('%d passed, %d failed, %d skipped (%d tests).', counts.PASS, counts.FAIL, counts.SKIP, #result.tests)
+  for _, test in ipairs(result.tests) do
+    if test.status ~= 'PASS' and test.status ~= 'SKIP' then
+      result.message = result.message .. '\n\n' .. test.name .. ' [' .. test.status .. ']\n' .. test.message
+    end
+  end
+  if result.status == 'ERROR' and fallback then result.message = result.message .. '\n\n' .. clean(fallback) end
   return result
 end
 
@@ -99,6 +127,7 @@ function M.finish(run, code, fallback, cancelled)
   if run.finished then return end
   run.finished = true
   local result = M.read(run, code, fallback, cancelled)
+  state.finish(run, result)
   vim.fn.delete(run.file)
   vim.fn.delete(run.file .. '.tmp')
   last_result, last_options = result, run.options
@@ -111,7 +140,7 @@ function M.finish(run, code, fallback, cancelled)
   end
   vim.api.nvim_exec_autocmds('User', {
     pattern = 'RobotCodeTestFinished', modeline = false,
-    data = { test = run.test, code = code, bufnr = run.terminal_buf, mode = run.mode, result = result },
+    data = { test = run.test, root = run.root, code = code, bufnr = run.terminal_buf, mode = run.mode, result = result },
   })
 end
 

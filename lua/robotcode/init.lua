@@ -21,8 +21,9 @@ local defaults = {
   markers = true,
   marker_text = '▶ Run / Debug',
   result_popup = { enabled = true, focus = true, max_width = 90, max_height = 20, border = 'rounded' },
+  explorer = { width = 48 },
   dap = { console = 'internalConsole' },
-  keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
+  keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt', explorer = '<leader>re' },
 }
 
 local function notify(message, level)
@@ -100,7 +101,7 @@ local function debug_test(ctx, test)
     notify('A debug session is already active. Stop it before debugging another test.')
     return
   end
-  local run, run_config = results.prepare(test, config, 'debug')
+  local run, run_config = results.prepare(test, config, 'debug', ctx)
   local cmd = project.command(ctx, config.cmd)
   local adapter_args = vim.list_slice(cmd, 2)
   vim.list_extend(adapter_args, { 'debug-launch', '--stdio' })
@@ -165,7 +166,7 @@ local function debug_test(ctx, test)
 end
 
 local function run_test(ctx, test)
-  local run, run_config = results.prepare(test, config, 'run')
+  local run, run_config = results.prepare(test, config, 'run', ctx)
   local cmd = project.run(ctx, test, run_config)
   vim.cmd('botright 12new')
   local terminal_buf = vim.api.nvim_get_current_buf()
@@ -247,6 +248,16 @@ function M.run_test() execute('run') end
 function M.debug_test() execute('debug') end
 function M.show_result() return results.show_last() end
 
+function M.explorer()
+  if not config then M.setup() end
+  local explorer = require('robotcode.explorer')
+  if explorer.is_open() and vim.bo.filetype == 'robotcode_explorer' then explorer.close(); return end
+  local bufnr = vim.api.nvim_get_current_buf()
+  explorer.open(context(bufnr, get_client(bufnr)), config, function(ctx, item, mode)
+    if mode == 'debug' then debug_test(ctx, item) else run_test(ctx, item) end
+  end)
+end
+
 function M.test()
   local bufnr, win, cursor = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), vim.api.nvim_win_get_cursor(0)
   vim.ui.select({ 'Run test', 'Debug test' }, { prompt = 'RobotCode test under cursor:' }, function(choice)
@@ -263,7 +274,7 @@ function M.setup(opts)
   vim.api.nvim_set_hl(0, 'RobotCodeTest', { link = 'DiagnosticHint', default = true })
   local function attach(bufnr)
     if not is_robot(bufnr) then return end
-    local actions = { run = M.run_test, debug = M.debug_test, test = M.test }
+    local actions = { run = M.run_test, debug = M.debug_test, test = M.test, explorer = M.explorer }
     for name, action in pairs(actions) do
       if config.keys and config.keys[name] then
         vim.keymap.set('n', config.keys[name], action, { buffer = bufnr, desc = 'RobotCode: ' .. name .. ' test' })

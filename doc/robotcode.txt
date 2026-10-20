@@ -31,15 +31,42 @@ COMMANDS                                                  *robotcode-commands*
     finishes running or debugging. Shows status, duration and failure reason.
     Scroll long messages normally; q, <Esc> and <Enter> close the popup.
 
+:RobotCodeExplorer                                         *:RobotCodeExplorer*
+    Open the test explorer in a left sidebar. Default <leader>re in Robot
+    buffers. Uses CLI discovery, including configured paths/profiles, without
+    requiring an attached LSP. From an empty buffer it uses the working directory.
+    Calling the command while focused in the sidebar closes it.
+
+    <Enter>    Expand/collapse a suite; jump to source for a test.
+    o          Open source at the test title (or the suite file).
+    r / d      Run / debug the selected test or suite.
+    R          Run all discovered tests.
+    p          Show selected test results or a suite summary.
+    gR         Refresh discovery from saved files.
+    q          Close the sidebar.
+
+    Badges show PASS / FAIL / SKIP, RUN during execution, -- for tests never
+    run, PART for suites with only some results, or ERR / STOP / ???? for
+    errors, interrupted sessions or missing results. The header shows the last
+    completed run. Cursor runs and debugging update the sidebar too.
+
+    Results persist per project in stdpath('state')/robotcode across restarts.
+    They describe previous runs; edits do not invalidate saved statuses, and
+    profiles share project history. External runs are not imported. Refresh
+    after adding/renaming tests. Execution rediscovers the selection and rejects
+    changed/unsaved Robot buffers or ambiguous names before starting.
+
 CONFIGURATION                                             *robotcode-config*
 >
     require('robotcode').setup({
       cmd = { 'python', '-m', 'robotcode.cli' },
       profiles = { 'dev' },
       args = { '--variable', 'BROWSER:chromium' },
-      keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
+      keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt',
+               explorer = '<leader>re' },
       markers = true,
       result_popup = { focus = true, max_width = 90, max_height = 20 },
+      explorer = { width = 48 },
       dap = { console = 'internalConsole' },
     })
 <
@@ -60,7 +87,8 @@ marker_text       Default '▶ Run / Debug'.
 result_popup      Default { enabled = true, focus = true, max_width = 90,
                   max_height = 20, border = 'rounded' }. Set focus = false to
                   keep typing, or result_popup = false to use notifications.
-keys              Table with run/debug/test mappings. false disables mappings.
+explorer          Sidebar options, default { width = 48 } (columns).
+keys              Table with run/debug/test/explorer mappings. false disables.
 dap               Additional DAP launch settings, e.g. stopOnEntry = true.
 
 Use your usual nvim-dap mappings for stepping, continuing and terminating.

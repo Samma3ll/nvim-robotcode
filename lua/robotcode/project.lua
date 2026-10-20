@@ -7,6 +7,7 @@ function M.root(bufnr, client, option)
     return option
   end
   local file = vim.api.nvim_buf_get_name(bufnr)
+  if file == '' then file = vim.fs.joinpath(vim.fn.getcwd(), '_') end
   -- Prefer RobotCode configuration over a potentially broader Git/LSP root.
   return vim.fs.root(file, { 'robot.toml', '.robot.toml', 'pyproject.toml' })
     or (client and client.config.root_dir)
@@ -51,7 +52,7 @@ function M.discover(ctx, config)
 end
 
 function M.test_args(test, config)
-  local args = { '--by-longname', test.longname }
+  local args = test.type == 'workspace' and {} or { '--by-longname', test.longname }
   vim.list_extend(args, config.args)
   vim.list_extend(args, config.paths)
   return args

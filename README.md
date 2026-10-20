@@ -1,7 +1,8 @@
 # nvim-robotcode
 
-Run or debug the Robot Framework test containing your cursor, from its title or
-anywhere in its body. Uses your existing RobotCode LSP for test ranges,
+Browse suites and their latest results in a test explorer, or run/debug the
+Robot Framework test containing your cursor, from its title or anywhere in its
+body. Uses your existing RobotCode LSP for cursor test ranges,
 RobotCode's CLI for discovery/execution, and `nvim-dap` for debugging.
 
 Optional `▶ Run / Debug` markers appear next to test titles. These are Neovim
@@ -110,11 +111,45 @@ Place the cursor on a test title or inside its body:
 | `<leader>rr` | `:RobotCodeRunTest` | Run this test in a terminal split |
 | `<leader>rd` | `:RobotCodeDebugTest` | Debug this test with `nvim-dap` |
 | `<leader>rt` | `:RobotCodeTest` | Choose Run or Debug |
+| `<leader>re` | `:RobotCodeExplorer` | Open the test explorer sidebar |
 | — | `:RobotCodeRefresh` | Refresh title markers |
 | — | `:RobotCodeResult` | Reopen the last test result popup |
 
 Mappings are buffer-local. Keywords and settings sections do not select a test.
 Tasks use the same actions.
+
+### Test explorer
+
+Open `:RobotCodeExplorer` from your Robot project to see its discovered suites
+and tests in a left sidebar. This view uses RobotCode CLI discovery and does not
+require an attached LSP. Paths, profiles, arguments and environment follow the
+same configuration as cursor actions. You can also open it from an empty buffer
+with Neovim's working directory set to the project, or set `root_dir` explicitly.
+
+| Sidebar key | Action |
+| --- | --- |
+| `<Enter>` | Expand/collapse a suite, or jump to a test's source |
+| `o` | Open the selected test/suite source |
+| `r` / `d` | Run / debug the selected test or entire suite |
+| `R` | Run all discovered tests |
+| `p` | Show the selected test's result or a suite's result summary |
+| `gR` | Refresh discovery |
+| `q` | Close the sidebar |
+
+Each test shows its latest known status and duration: `PASS`, `FAIL`, `SKIP`,
+`RUN` while executing, or `--` before its first run. Suite badges summarize
+their descendants; `PART` means only some tests have results. The header shows
+the latest completed run, with counts for a suite run. Runs from cursor commands
+and debugging update an open explorer too. Status changes to the final results
+when execution finishes, including failures caused by suite teardown.
+
+Results are saved per project under `stdpath('state')/robotcode` and restored
+after restarting Neovim. These are previous run results, not a claim that edited
+tests still pass. Results from different profiles share the same project history.
+External Robot runs/output.xml files are not imported. Use `p` to inspect full
+failure messages, and `gR` after adding or renaming tests. Refresh uses saved files;
+run/debug rediscovers the selection and rejects changed/unsaved buffers and
+ambiguous full names before launching.
 
 When a run or debug session finishes, a centered popup shows **PASS**, **FAIL**
 or **SKIP**, the test name and duration. Failed tests show Robot Framework's full
@@ -170,7 +205,8 @@ require('robotcode').setup({
     max_height = 20,
     border = 'rounded',
   },
-  keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
+  explorer = { width = 48 },          -- sidebar width in columns
+  keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt', explorer = '<leader>re' },
   -- keys = false,                   -- use only commands / your own mappings
   dap = { console = 'internalConsole' }, -- e.g. also stopOnEntry = true
 })
@@ -203,7 +239,9 @@ A bundled Robot Framework listener captures the final result in a temporary
 file for the popup. The temporary file is removed after completion; configured
 output, log and report paths are preserved. `RobotCodeTestFinished` user events
 include `data.result` (status, message, name and duration in `elapsed_ms`) and
-`data.mode` (`run` or `debug`) for integrations.
+`data.mode` (`run` or `debug`) for integrations. Suite results include a `tests`
+array of individual results. `data.root` identifies the project;
+`RobotCodeTestStarted` provides the selection, project root and mode at launch.
 
 ## Verification
 
@@ -218,6 +256,10 @@ closing/reopening and both run/debug completion. Older `nvim-dap` on Windows may
 an adapter exit-code warning after a successful session when it stops the
 launcher; the test's DAP exit status and Robot output still report the result.
 
+Explorer integration checks exercise real discovery, folding, source navigation,
+suite/all execution, suite debugging, running/final badges, persisted results,
+unsaved-buffer and duplicate-name rejection, and discovery launch errors.
+
 To reproduce in a disposable local environment:
 
 ```sh
@@ -226,6 +268,7 @@ uv pip install --python .venv/Scripts/python.exe 'robotcode[runner,debugger,lang
 git clone --branch 0.8.0 --depth 1 https://github.com/mfussenegger/nvim-dap.git .deps/nvim-dap
 nvim --headless -u NONE -i NONE -l tests/unit.lua
 nvim --headless -u NONE -i NONE -l tests/integration.lua
+nvim --headless -u NONE -i NONE -l tests/explorer.lua
 ```
 
 Then enable the DAP integration check in PowerShell:
@@ -233,6 +276,7 @@ Then enable the DAP integration check in PowerShell:
 ```powershell
 $env:ROBOTCODE_TEST_DAP = '1'
 nvim --headless -u NONE -i NONE -l tests/integration.lua
+nvim --headless -u NONE -i NONE -l tests/explorer.lua
 ```
 
 On Unix, use `.venv/bin/python` for installation and

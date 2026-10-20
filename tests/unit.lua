@@ -59,5 +59,22 @@ local popup, win = results.show_last()
 assert(vim.api.nvim_win_is_valid(win) and vim.bo[popup].filetype == 'robotcode_result')
 results.close()
 assert(not vim.api.nvim_buf_is_valid(popup))
+local second = vim.tbl_extend('force', {}, selected, { name = 'Second', longname = 'Suites.Cursor.Second' })
+local suite = { type = 'suite', name = 'Cursor', longname = 'Suites.Cursor', children = { selected, second } }
+local suite_run = { file = vim.fn.tempname() .. '.json', test = suite, mode = 'run', options = false }
+vim.fn.writefile({ vim.json.encode({ tests = {
+  { longname = selected.longname, status = 'PASS', elapsed_ms = 10 },
+  { longname = second.longname, status = 'FAIL', message = 'Suite failure', elapsed_ms = 20 },
+} }) }, suite_run.file)
+local suite_result = results.read(suite_run, 1)
+equal('FAIL', suite_result.status)
+equal('PASS', suite_result.tests[1].status)
+equal(30, suite_result.elapsed_ms)
+assert(suite_result.message:find('1 passed, 1 failed, 0 skipped', 1, true))
+assert(suite_result.message:find('Suite failure', 1, true))
+equal('STOPPED', results.read(suite_run, nil, nil, true).status)
+equal('ERROR', results.read(suite_run, 252, 'Runner failed').status)
+vim.fn.delete(suite_run.file)
+equal('UNKNOWN', results.read(suite_run, 0).status)
 print('Unit checks passed: selection, literal argv, result status/error handling, popup settings and cleanup.')
 vim.cmd('qa!')

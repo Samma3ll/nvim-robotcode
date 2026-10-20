@@ -1,0 +1,5 @@
+paths = ["suites"]
+output-dir = "../../.output/robot"
+
+[profiles.example]
+variables = { MESSAGE = "from profile" }

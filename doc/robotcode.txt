@@ -1,0 +1,73 @@
+*robotcode.txt*  Run and debug the Robot Framework test under the cursor
+
+Requirements: Neovim >= 0.10, RobotCode LSP, RobotCode runner/debugger.
+Debugging also requires a compatible version of mfussenegger/nvim-dap.
+
+SETUP                                                     *robotcode-setup*
+>
+    require('robotcode').setup()
+<
+The plugin extends an existing RobotCode LSP configuration. It does not start
+the language server. Its client name must match setup().client_name (robotcode).
+
+COMMANDS                                                  *robotcode-commands*
+
+:RobotCodeRunTest                                          *:RobotCodeRunTest*
+    Run the test containing the cursor in a terminal split. Default <leader>rr.
+
+:RobotCodeDebugTest                                        *:RobotCodeDebugTest*
+    Debug the test containing the cursor. Default <leader>rd. Set breakpoints
+    with require('dap').toggle_breakpoint(), then launch this command.
+
+:RobotCodeTest                                             *:RobotCodeTest*
+    Choose Run or Debug for the cursor test. Default <leader>rt.
+
+:RobotCodeRefresh                                          *:RobotCodeRefresh*
+    Refresh optional signs and virtual text alongside test titles. These are
+    visual indicators; use commands or mappings to run/debug a test.
+
+CONFIGURATION                                             *robotcode-config*
+>
+    require('robotcode').setup({
+      cmd = { 'python', '-m', 'robotcode.cli' },
+      profiles = { 'dev' },
+      args = { '--variable', 'BROWSER:chromium' },
+      keys = { run = '<leader>rr', debug = '<leader>rd', test = '<leader>rt' },
+      markers = true,
+      dap = { console = 'internalConsole' },
+    })
+<
+cmd               argv list or function(ctx) returning argv. Defaults to project
+                  .venv/venv Python, then robotcode on PATH. ctx has root, file
+                  and bufnr. Use the environment containing your Robot libraries.
+root_dir          Optional root string or function(bufnr, client).
+client_name       Attached LSP name, default 'robotcode'.
+profiles          RobotCode profiles, default {}.
+robotcode_args    Global CLI options before the subcommand, default {}.
+args              Robot options shared by discovery/run/debug, default {}.
+paths             Optional source paths, default {} (uses configured paths).
+env               Environment overrides (map), default nil (inherits process).
+save_before_run   Save the current buffer before execution, default true.
+discovery_timeout Timeout for CLI discovery in milliseconds, default 30000.
+markers           Enable test-title indicators, default true.
+marker_text       Default '▶ Run / Debug'.
+keys              Table with run/debug/test mappings. false disables mappings.
+dap               Additional DAP launch settings, e.g. stopOnEntry = true.
+
+Use your usual nvim-dap mappings for stepping, continuing and terminating.
+Debug output is available in require('dap').repl.open().
+
+BEHAVIOR                                                  *robotcode-behavior*
+
+Selection uses RobotCode LSP symbols, including the whole test body. Keywords
+and settings do not select a test. Exact full names come from CLI discovery.
+Profiles and robot.toml paths are shared across discovery, run and debug.
+Duplicate full names and multiple generated tests at one source line are
+rejected. Save other modified Robot buffers in the project before execution. No shell command
+strings are used: names, arguments and paths are passed as separate argv items.
+
+The default root is the closest Robot/Python config, then LSP root, Git root or
+file directory. Output paths follow RobotCode configuration. See README.md for
+installation examples, protocol references and verification details.
+
+vim:tw=78:ts=8:noet:ft=help:norl:

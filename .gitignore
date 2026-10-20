@@ -1,0 +1,6 @@
+.venv/
+.deps/
+tests/.output/
+__pycache__/
+.robotcode_cache/
+doc/tags
